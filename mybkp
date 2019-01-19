@@ -1,0 +1,485 @@
+#!/usr/bin/env php
+<?php
+
+array_shift($argv);
+if(empty($argv)) {
+  echo "Please pass configuration files as parameters.\nExample: ./".basename(__FILE__)." server1.ini server2.ini\n";
+}
+
+
+foreach($argv as $configFile) {
+  try {
+    $bkp = new MyBkp($configFile);
+  } catch(Exception $e) {
+    echo "ERROR\n";
+    echo "    ".$e->getMessage();
+    echo "\n\n";
+  }
+}
+
+
+final class MyBkp {
+
+
+  private $serverVersion;
+  private $config;
+  private $tables = [];
+  private $schemas = [];
+
+  public function __construct($configFile) {
+    if(!is_file($configFile)) {
+      throw new Exception('CONFIG FILE MISSING: '.$configFile);
+    }
+    $this->config = parse_ini_file($configFile);
+
+    // TODO: Check configuration requirements
+    $this->config['mysql_host'] = $this->config['mysql_host'] ?? 'localhost';
+    $this->config['output_mode'] = $this->config['output_mode'] ?? 'single';
+    $this->config['compress'] = isset($this->config['compress']) ? ($this->config['compress']) : true;
+
+    $this->init();
+    $this->printPreCheck();
+    $this->dump();
+  }
+
+
+
+
+  // Initialize
+  public function init() {
+
+    // Test the connection
+    $this->getDatabaseVersion();
+
+    // Retrieve table sizes
+    $this->getDatabaseTables();
+
+    // Check if there's enough space
+    // TODO: Handle mounts, use the final output path to calculate disk space
+    $bkpSize = $this->getBackupSize();
+    $diskSpace = $this->getOutputSpace();
+    if($bkpSize > $diskSpace) {
+      throw new Exception("NOT ENOUGH DISK SPACE ON: ".$this->getOutputPath());
+    }
+  }
+
+
+
+  // Prints prechecks
+  public function printPreCheck() {
+$out = "
+Database
+========
+ Connection: ".(empty($this->config['mysql_user'])?'':$this->config['mysql_user'].'@').$this->config['mysql_host'].(empty($this->config['mysql_port'])?'':':'.$this->config['mysql_port'])."
+     Server: ".$this->getDatabaseVersion()."
+    Schemas: ".count($this->schemas)."
+     Tables: ".$this->countTables()."
+       Size: ".$this->getDatabaseSize()." MB
+";
+    if(!empty($this->config['ssh'])) {
+$out .= "        SSH: ".(empty($this->config['ssh_user'])?'':$this->config['ssh_user'].'@').$this->config['ssh_host'].(empty($this->config['ssh_port'])?'':':'.$this->config['ssh_port'])."
+";
+    }
+$out .= "
+Backup
+======
+    Schemas: ".count($this->getBackupSchemas())."
+     Tables: ".$this->countBackupTables()."
+       Size: ".$this->getBackupSize()." MB
+     Output: ".$this->getOutputPath()."
+ Disk space: ".$this->getOutputSpace()." MB
+       Mode: ".$this->config['output_mode']."
+   Compress: ".($this->config['compress']?'Yes':'No')."
+
+";
+    echo $out;
+  }
+
+
+
+  // Count tables
+  public function countTables($schema=null) {
+    if($schema) {
+      return count($this->tables[$schema]);
+    }
+    $size = 0;
+    foreach($this->schemas as $schema) {
+      $size += count($this->tables[$schema]);
+    }
+    return $size;
+  }
+
+
+
+  // Gets the output path
+  public function getOutputPath() {
+    $output = __DIR__.'/dumps/';
+    if(!empty($this->config['output_folder'])) {
+      $output = $this->config['output_folder'];
+    }
+    if(substr($output,-1) != '/') {
+      $output .= '/';
+    }
+    $output .= $this->config['mysql_host'].'/';
+    if(!is_dir($output)) {
+      mkdir($output, 0700, true);
+    }
+    return $output;
+  }
+
+
+
+  // Returns the free space of the disk to output
+  public function getOutputSpace() {
+    $outputPath = $this->getOutputPath();
+    $output = [];
+    exec('df -m '.$outputPath, $output);
+    $data = [];
+    $heads = [];
+    foreach($output as $line) {
+      $parts = explode(' ',$line);
+      $parts = array_filter($parts);
+      $parts = array_values($parts);
+      if(empty($heads)) {
+        foreach($parts as $pos=>$col) {
+          $heads[$pos] = strtoupper($col);
+        }
+      } else {
+        foreach($parts as $pos=>$col) {
+          if(is_numeric($col) && isset($data[ $heads[$pos] ])) {
+            $data[ $heads[$pos] ] += $col;
+          } else {
+            $data[ $heads[$pos] ] = $col;
+          }
+        }
+      }
+    }
+    return $data['AVAILABLE'] ?? false;
+  }
+
+
+
+  // Count backup tables
+  public function countBackupTables($schema=null) {
+    $tables = $this->getBackupTables($schema);
+    if($schema) {
+      return count($tables);
+    }
+    $size = 0;
+    foreach($tables as $schema=>$subtables) {
+      $size += count($subtables);
+    }
+    return $size;
+  }
+
+
+
+  // Gets the tables to backup (table names)
+  public function getBackupTables($schema=null) {
+    if($schema) {
+      $tables = array_keys($this->tables[$schema]);
+      return $this->filterList( $tables, $this->config['ignore_tables'] ?? [], $this->config['dump_tables'] ?? [] );
+    }
+    $result = [];
+    foreach($this->tables as $schema=>$sizes) {
+      $tables = array_keys($sizes);
+      $result[ $schema ] = $this->filterList( $tables, $this->config['ignore_tables'] ?? [], $this->config['dump_tables'] ?? [] );
+    }
+    return $result;
+  }
+
+
+
+  // Gets the schemas to backup
+  public function getBackupSchemas() {
+    return $this->filterList( $this->schemas, $this->config['ignore_schemas'] ?? [], $this->config['dump_schemas'] ?? [] );
+  }
+
+
+
+  // Filters a list of ignores and force
+  private function filterList($values, array $ignores=[], array $forces=[]) {
+    if(!empty($ignores)) {
+      foreach($ignores as $exp) {
+        $exp = str_replace('*', '[^\s,]+', $exp);
+        $exp = '/^'.$exp.'$/';
+        foreach($values as $pos=>$value) {
+          if(preg_match($exp, $value)) {
+            unset($values[$pos]);
+          }
+        }
+      }
+    }
+    if(!empty($forces)) {
+      foreach($forces as $exp) {
+        $exp = str_replace('*', '[^\s,]+', $exp);
+        $exp = '/^'.$exp.'$/';
+        foreach($values as $pos=>$value) {
+          if(!preg_match($exp, $value)) {
+            unset($values[$pos]);
+          }
+        }
+      }
+    }
+    return $values;
+  }
+
+
+  // Gets the backup size (+/- compression/indexes/etc)
+  public function getBackupSize($schema=null) {
+    $schemas = empty($schema) ? $this->schemas : [ $schema ];
+    $backupSize = 0;
+    foreach($schemas as $schema) {
+      $backupTables = $this->getBackupTables($schema);
+      foreach($this->tables[$schema] as $table=>$size) {
+        if(in_array($table,$backupTables)) {
+          $backupSize += $size;
+        }
+      }
+    }
+    return round($backupSize,1);
+  }
+ 
+
+
+  // Returns the size of the database
+  // The actual value might be smaller or larger, depending on indexes and compression
+  public function getDatabaseSize($schema=null) {
+    if($schema) {
+      return array_sum($this->tables[$schema] ?? []);
+    }
+    $size = 0;
+    foreach($this->tables as $schema=>$tables) {
+      $size+=array_sum($tables);
+    }
+    return $size;
+  }
+
+
+
+  // Gets the path for a backup
+  public function getBackupPath($schema, $table=null) {
+    $date = date('Ymd');
+    if($table) {
+      $dir = $this->getOutputPath().$schema.'/'.$date.'/';
+      $path = $dir.$table.'.sql';
+    } else {
+      $dir = $this->getOutputPath().$schema.'/';
+      $path = $dir.$date.'-'.$schema.'.sql';
+    }
+    if(!is_dir($dir)) {
+      mkdir($dir, 0700, true);
+    }
+    if(!empty($this->config['compress'])) {
+      $path .= '.gz';
+    }
+    return $path;
+  }
+
+
+
+  // Retrieves server info
+  public function getDatabaseVersion() {
+    if(empty($this->serverVersion)) {
+      $sql = "SHOW VARIABLES LIKE 'version%'";
+      $cmd = $this->prepareQuery($sql);
+      $output = [];
+      exec($cmd, $output, $return);
+      switch($return) {
+        case 1:
+          throw new Exception('DATABASE CONNECTION FAILED');
+          break;
+        case 255:
+          throw new Exception('SSH CONNECTION FAILED');
+          break;
+      }
+      array_shift($output);
+      $vars = [];
+      foreach($output as $line) {
+        $parts = explode("\t",$line,2);
+        $vars[ $parts[0] ] = $parts[1];
+      }
+      if(empty($vars)) {
+        throw new Exception('NON-COMPATIBLE MYSQL VERSION');
+      }
+      $this->serverVersion = implode(' ', $vars);
+    }
+    return $this->serverVersion;
+  }
+
+
+
+  // Retrieves tables and their size
+  public function getDatabaseTables($schema=null) {
+    if(empty($this->tables)) {
+      $sql = "SELECT table_schema, table_name, ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) AS size FROM information_schema.tables ";
+      if($schema) {
+        $sql .= " WHERE table_schema='$schema' ";
+      }
+      $sql .= " GROUP BY table_schema, table_name";
+      $cmd = $this->prepareQuery($sql, 'information_schema');
+      $output = [];
+      exec($cmd, $output);
+      array_shift($output);
+      foreach($output as $line) {
+        $parts = explode("\t",$line);
+        if(!in_array($parts[0], $this->schemas)) {
+          $this->schemas[] = $parts[0];
+          $this->tables[$parts[0]] = [];
+        }
+        $this->tables[$parts[0]][$parts[1]] = $parts[2];
+      }
+    }
+    return $this->tables;
+  }
+
+
+
+  // Prepares for remote execution
+  private function remotify($query) {
+    if($this->config['ssh']) {
+      $cmd = [];
+      $cmd[] = 'ssh';
+      $cmd[] = $this->config['ssh_host'];
+      if(!empty($this->config['ssh_user'])) {
+        $cmd[] = '-l '.$this->config['ssh_user'];
+      }
+      if(!empty($this->config['ssh_port'])) {
+        $cmd[] = '-p '.$this->config['ssh_port'];
+      }
+      $cmd[] = '"'.str_replace('"','\"',$query).'"';
+      $query = implode(' ',$cmd);
+    }
+    return $query;
+  }
+
+
+
+  // Prepares a query for execution
+  private function prepareQuery($sql, $schema=null) {
+    $cmd = [];
+    $cmd[] = 'mysql';
+    if(!empty($this->config['mysql_host'])) {
+      $cmd[] = '--host='.$this->config['mysql_host'];
+    }
+    if(!empty($this->config['mysql_port'])) {
+      $cmd[] = '--port='.$this->config['mysql_port'];
+    }
+    if(!empty($this->config['mysql_user'])) {
+      $cmd[] = '--user='.$this->config['mysql_user'];
+    }
+    if(!empty($this->config['mysql_pass'])) {
+      $cmd[] = '--password='.$this->config['mysql_pass'];
+    }
+    if($schema) {
+      $cmd[] = $schema;
+    }
+    $cmd[] = '-e';
+    $cmd[] = '"'.str_replace('"','\"',$sql).'"';
+    $query = implode(' ',$cmd);
+    $query = $this->remotify($query);
+    return $query;
+  }
+
+
+
+  // Starts the dump
+  public function dump() {
+    $schemas = $this->getBackupSchemas();
+    foreach($schemas as $schema) {
+      $tables = $this->getBackupTables($schema);
+      $cmds = [];
+      if($this->config['output_mode'] != 'single') {
+        $tables = [$tables];
+      }
+      foreach($tables as $row) {
+        if(is_array($row)) {
+          echo "> BACKING UP SCHEMA $schema - ";
+        } else {
+          echo "> BACKING UP SCHEMA $schema TABLE $row - ";
+        }
+        exec( $this->prepareDump($schema, $row, $outfile ) , $out, $ret);
+        if($ret) {
+          switch($ret) {
+            case 1:
+              echo "DB ERROR\n";
+              break;
+            case 255:
+              echo "SSH ERROR\n";
+              break;
+            default:
+              echo "UNKNOWN ERROR\n";
+              break;
+          }
+          if(!empty($out)) {
+            echo "    ".implode("\n    ", $out);
+          }
+        } else {
+          echo "OK\n";
+          echo "    $outfile [".round(ceil(filesize($outfile)/1024/1024*10)/10, 1, PHP_ROUND_HALF_UP)." MB]\n";
+        }
+        echo "\n";
+      }
+    }
+  }
+
+
+
+  // Prepares a dump for execution
+  private function prepareDump($schema, $tables, &$path) {
+    $flags = [
+        '--skip-add-drop-table',
+        '--add-locks',
+        '--skip-comments',
+        '--compress',
+        '--create-options',
+        '--disable-keys',
+        '--extended-insert',
+        '--flush-logs',
+        '--skip-lock-tables',
+        '--quick',
+        '--quote-names',
+        '--set-charset',
+        '--single-transaction',
+        '--dump-date',
+        '--triggers',
+        '--tz-utc',
+      ]; 
+    $cmd = [];
+    $cmd[] = 'mysqldump';
+    foreach($flags as $flag) {
+      $cmd[] = $flag;
+    }
+    if(!empty($this->config['mysql_host'])) {
+      $cmd[] = '--host='.$this->config['mysql_host'];
+    }
+    if(!empty($this->config['mysql_port'])) {
+      $cmd[] = '--port='.$this->config['mysql_port'];
+    }
+    if(!empty($this->config['mysql_user'])) {
+      $cmd[] = '--user='.$this->config['mysql_user'];
+    }
+    if(!empty($this->config['mysql_pass'])) {
+      $cmd[] = '--password='.$this->config['mysql_pass'];
+    }
+    $cmd[] = $schema;
+    if(is_array($tables)) {
+      $cmd[] = implode(' ', $tables);
+    } else {
+      $cmd[] = $tables;
+    }
+    $query = implode(' ', $cmd);
+    $query = $this->remotify($query);
+    if(!empty($this->config['compress'])) {
+      $query .= ' | gzip --best ';
+    }
+    $path = $this->getBackupPath($schema, $tables);
+    $query .= ' > '.$path;
+    $query .= ' && chmod 0600 '.$path;
+    return $query;
+  }
+
+
+}
+
+
