@@ -63,12 +63,19 @@ final class MyBkp {
     if(!is_file($configFile)) {
       throw new Exception('CONFIG FILE MISSING: '.$configFile);
     }
-    $this->config = parse_ini_file($configFile);
+    $config = parse_ini_file($configFile);
 
     // TODO: Check configuration requirements
-    $this->config['mysql_host'] = $this->config['mysql_host'] ?? 'localhost';
-    $this->config['output_mode'] = $this->config['output_mode'] ?? 'single';
-    $this->config['compress'] = isset($this->config['compress']) ? ($this->config['compress']) : true;
+    $defaults = [
+      'mysql_host' => 'localhost',
+      'output_mode' => 'single',
+      'compress' => true,
+      'ignore_tables' => [],
+      'dump_tables' => [],
+      'ignore_schemas' => [],
+      'dump_schemas' => [],
+    ]; 
+    $this->config = array_merge($defaults, $config);
 
     $this->init();
     $this->printPreCheck();
@@ -194,7 +201,7 @@ Backup
         }
       }
     }
-    return $data['AVAILABLE'] ?? false;
+    return isset($data['AVAILABLE']) ? $data['AVAILABLE'] : false;
   }
 
 
@@ -218,13 +225,13 @@ Backup
   public function getBackupTables($schema=null) {
     if($schema) {
       $tables = array_keys($this->tables[$schema]);
-      return $this->filterList( $tables, $this->config['ignore_tables'] ?? [], $this->config['dump_tables'] ?? [] );
+      return $this->filterList( $tables, $this->config['ignore_tables'], $this->config['dump_tables'] );
     }
     $result = [];
     $schemas = $this->getBackupSchemas();
     foreach($schemas as $schema) {
       $tables = array_keys($this->tables[$schema]);
-      $result[ $schema ] = $this->filterList( $tables, $this->config['ignore_tables'] ?? [], $this->config['dump_tables'] ?? [] );
+      $result[ $schema ] = $this->filterList( $tables, $this->config['ignore_tables'], $this->config['dump_tables']);
     }
     return $result;
   }
@@ -233,7 +240,7 @@ Backup
 
   // Gets the schemas to backup
   public function getBackupSchemas() {
-    return $this->filterList( $this->schemas, $this->config['ignore_schemas'] ?? [], $this->config['dump_schemas'] ?? [] );
+    return $this->filterList( $this->schemas, $this->config['ignore_schemas'], $this->config['dump_schemas'] );
   }
 
 
@@ -287,7 +294,10 @@ Backup
   // The actual value might be smaller or larger, depending on indexes and compression
   public function getDatabaseSize($schema=null) {
     if($schema) {
-      return array_sum($this->tables[$schema] ?? []);
+      if(isset($this->tables[$schema])) {
+        return array_sum($this->tables[$schema]);
+      }
+      return 0;
     }
     $size = 0;
     foreach($this->tables as $schema=>$tables) {
