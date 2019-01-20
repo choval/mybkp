@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+date_default_timezone_set('UTC');
 
 // Removes the script
 array_shift($argv);
@@ -310,7 +311,7 @@ Backup
 
   // Gets the path for a backup
   public function getBackupPath($schema, $table=null) {
-    $date = date('Ymd');
+    $date = gmdate('Ymd');
     if($table && !is_array($table)) {
       $dir = $this->getOutputPath().$schema.'/'.$date.'/';
       $path = $dir.$table.'.sql';
@@ -490,7 +491,6 @@ Backup
         '--create-options',
         '--disable-keys',
         '--extended-insert',
-        '--flush-logs',
         '--skip-lock-tables',
         '--quick',
         '--quote-names',
