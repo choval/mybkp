@@ -1,15 +1,48 @@
 #!/usr/bin/env php
 <?php
 
+// Removes the script
 array_shift($argv);
+
+
+$shorts = "d";
+$longs = [
+  "dry",
+  /*
+  "compress",
+  "ignore-schemas:",
+  "dump-schemas:",
+  "ignore-tables:",
+  "dump-tables:",
+  "output-folder:",
+  "output-mode:",
+  "mysql-host:",
+  "mysql-port:",
+  "mysql-user:",
+  "mysql-pass:",
+  "ssh:",
+  "ssh-host:",
+  "ssh-port:",
+  "ssh-user:",
+  */
+  ];
+$options = getopt($shorts, $longs);
+foreach($options as $opt=>$val) {
+  $param = (strlen($opt)==1) ? '-'.$opt : '--'.$opt;
+  $pos = array_search($param, $argv);
+  if($pos !== false) {
+    unset($argv[$pos]);
+  }
+}
+
+// Checks configs
 if(empty($argv)) {
   echo "Please pass configuration files as parameters.\nExample: ./".basename(__FILE__)." server1.ini server2.ini\n";
 }
 
-
 foreach($argv as $configFile) {
   try {
-    $bkp = new MyBkp($configFile);
+    $bkp = new MyBkp($configFile, $options);
   } catch(Exception $e) {
     echo "ERROR\n";
     echo "    ".$e->getMessage();
@@ -26,7 +59,7 @@ final class MyBkp {
   private $tables = [];
   private $schemas = [];
 
-  public function __construct($configFile) {
+  public function __construct($configFile, $options=[]) {
     if(!is_file($configFile)) {
       throw new Exception('CONFIG FILE MISSING: '.$configFile);
     }
@@ -39,7 +72,10 @@ final class MyBkp {
 
     $this->init();
     $this->printPreCheck();
-    $this->dump();
+
+    if(!isset($options['d']) && !isset($options['dry'])) {
+      $this->dump();
+    }
   }
 
 
@@ -120,7 +156,11 @@ Backup
     if(substr($output,-1) != '/') {
       $output .= '/';
     }
-    $output .= $this->config['mysql_host'].'/';
+    if($this->config['mysql_host'] == 'localhost' && !empty($this->config['ssh']) && !empty($this->config['ssh_host'])) {
+      $output .= preg_replace('/[^a-z0-9]+/','_', $this->config['ssh_host']).'/';
+    } else {
+      $output .= $this->config['mysql_host'].'/';
+    }
     if(!is_dir($output)) {
       mkdir($output, 0700, true);
     }
@@ -181,8 +221,9 @@ Backup
       return $this->filterList( $tables, $this->config['ignore_tables'] ?? [], $this->config['dump_tables'] ?? [] );
     }
     $result = [];
-    foreach($this->tables as $schema=>$sizes) {
-      $tables = array_keys($sizes);
+    $schemas = $this->getBackupSchemas();
+    foreach($schemas as $schema) {
+      $tables = array_keys($this->tables[$schema]);
       $result[ $schema ] = $this->filterList( $tables, $this->config['ignore_tables'] ?? [], $this->config['dump_tables'] ?? [] );
     }
     return $result;
@@ -297,7 +338,9 @@ Backup
       $vars = [];
       foreach($output as $line) {
         $parts = explode("\t",$line,2);
-        $vars[ $parts[0] ] = $parts[1];
+        if(count($parts) == 2) {
+          $vars[ $parts[0] ] = $parts[1];
+        }
       }
       if(empty($vars)) {
         throw new Exception('NON-COMPATIBLE MYSQL VERSION');
@@ -313,8 +356,9 @@ Backup
   public function getDatabaseTables($schema=null) {
     if(empty($this->tables)) {
       $sql = "SELECT table_schema, table_name, ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) AS size FROM information_schema.tables ";
+      $sql .= " WHERE table_schema!='information_schema' ";
       if($schema) {
-        $sql .= " WHERE table_schema='$schema' ";
+        $sql .= " AND table_schema='$schema' ";
       }
       $sql .= " GROUP BY table_schema, table_name";
       $cmd = $this->prepareQuery($sql, 'information_schema');
@@ -322,7 +366,7 @@ Backup
       exec($cmd, $output);
       array_shift($output);
       foreach($output as $line) {
-        $parts = explode("\t",$line);
+        $parts = explode("\t",$line,3);
         if(!in_array($parts[0], $this->schemas)) {
           $this->schemas[] = $parts[0];
           $this->tables[$parts[0]] = [];
@@ -376,6 +420,7 @@ Backup
     }
     $cmd[] = '-e';
     $cmd[] = '"'.str_replace('"','\"',$sql).'"';
+    $cmd[] = ' 2> /dev/null';
     $query = implode(' ',$cmd);
     $query = $this->remotify($query);
     return $query;
