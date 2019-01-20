@@ -311,7 +311,7 @@ Backup
   // Gets the path for a backup
   public function getBackupPath($schema, $table=null) {
     $date = date('Ymd');
-    if($table) {
+    if($table && !is_array($table)) {
       $dir = $this->getOutputPath().$schema.'/'.$date.'/';
       $path = $dir.$table.'.sql';
     } else {
