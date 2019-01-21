@@ -239,7 +239,7 @@ Backup
 
 
  // Gets large tables
- public function getBackupLargeTables(string $schema) {
+ public function getBackupLargeTables($schema) {
    $larges = [];
    $backupTables = $this->getBackupTables($schema);
    foreach($backupTables as $table) {
