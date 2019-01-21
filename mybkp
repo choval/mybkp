@@ -260,13 +260,21 @@ Backup
       }
     }
     if(!empty($forces)) {
+      $exps = [];
       foreach($forces as $exp) {
         $exp = str_replace('*', '[^\s,]+', $exp);
         $exp = '/^'.$exp.'$/';
-        foreach($values as $pos=>$value) {
-          if(!preg_match($exp, $value)) {
-            unset($values[$pos]);
+        $exps[] = $exp;
+      }
+      foreach($values as $pos=>$value) {
+        $found = false;
+        foreach($exps as $exp) {
+          if(preg_match($exp, $value)) {
+            $found = $pos;
           }
+        }
+        if($found !== false) {
+          unset($values[$pos]);
         }
       }
     }
