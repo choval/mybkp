@@ -451,6 +451,9 @@ Backup
   // Starts the dump
   public function dump() {
     $schemas = $this->getBackupSchemas();
+    $optionKeys = array_keys($this->options);
+    $dryOptions = array_intersect(['d','dry'], $optionKeys);
+    $isDry = empty($dryOptions) ? false : true;
     foreach($schemas as $schema) {
       $tables = $this->getBackupTables($schema);
       $cmds = [];
@@ -463,7 +466,7 @@ Backup
         } else {
           echo "> BACKING UP SCHEMA $schema TABLE $row - ";
         }
-        if(!empty(array_intersect(['d','dry'], array_keys($this->options)))) {
+        if($isDry) {
           echo "READY\n";
           continue;
         }
