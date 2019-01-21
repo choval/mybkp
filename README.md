@@ -41,7 +41,7 @@ Backup
        Size: 0.3 MB
      Output: /mybkp/dumps/localhost/
  Disk space: 58484 MB
-       Mode: single
+       Mode: full
    Compress: Yes
 
 > BACKING UP SCHEMA cliente_001 TABLE actividad - OK
@@ -109,9 +109,9 @@ ignore_tables[] = bkp_*
 ;output_folder = 
 
 ; The way to dump the database. Options are:
-; - single - Each table is dumped to a separate file. Default.
-; - full - All tables are dumped to a single file.
-;output_mode = single
+; - single - Each table is dumped to a separate file.
+; - full - All tables are dumped to a single file. Default.
+;output_mode = full
 
 ; Compress output using Gzip. This runs locally, even if ssh is configured.
 ; Options are: true, false. Default is true.

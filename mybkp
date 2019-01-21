@@ -72,7 +72,7 @@ final class MyBkp {
     // TODO: Check configuration requirements
     $defaults = [
       'mysql_host' => 'localhost',
-      'output_mode' => 'single',
+      'output_mode' => 'full',
       'compress' => true,
       'ignore_tables' => [],
       'dump_tables' => [],
