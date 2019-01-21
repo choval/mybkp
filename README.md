@@ -117,6 +117,10 @@ ignore_tables[] = bkp_*
 ; Options are: true, false. Default is true.
 ;compress = true
 
+; When a table is larger than this limit, the table will be exported separately.
+; Default value is 500, values are in MB.
+;table_dump_limit = 500;
+
 
 [mysql]
 
