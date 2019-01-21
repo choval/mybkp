@@ -60,11 +60,14 @@ final class MyBkp {
   private $tables = [];
   private $schemas = [];
 
+  private $options = [];
+
   public function __construct($configFile, $options=[]) {
     if(!is_file($configFile)) {
       throw new Exception('CONFIG FILE MISSING: '.$configFile);
     }
     $config = parse_ini_file($configFile);
+    $this->options = $options;
 
     // TODO: Check configuration requirements
     $defaults = [
@@ -81,9 +84,7 @@ final class MyBkp {
     $this->init();
     $this->printPreCheck();
 
-    if(!isset($options['d']) && !isset($options['dry'])) {
-      $this->dump();
-    }
+    $this->dump();
   }
 
 
@@ -273,7 +274,7 @@ Backup
             $found = $pos;
           }
         }
-        if($found !== false) {
+        if($found === false) {
           unset($values[$pos]);
         }
       }
@@ -284,7 +285,7 @@ Backup
 
   // Gets the backup size (+/- compression/indexes/etc)
   public function getBackupSize($schema=null) {
-    $schemas = empty($schema) ? $this->schemas : [ $schema ];
+    $schemas = empty($schema) ? $this->getBackupSchemas() : [ $schema ];
     $backupSize = 0;
     foreach($schemas as $schema) {
       $backupTables = $this->getBackupTables($schema);
@@ -461,6 +462,10 @@ Backup
           echo "> BACKING UP SCHEMA $schema - ";
         } else {
           echo "> BACKING UP SCHEMA $schema TABLE $row - ";
+        }
+        if(!empty(array_intersect(['d','dry'], array_keys($this->options)))) {
+          echo "READY\n";
+          continue;
         }
         exec( $this->prepareDump($schema, $row, $outfile ) , $out, $ret);
         if($ret) {
