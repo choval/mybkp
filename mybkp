@@ -94,6 +94,9 @@ final class MyBkp {
   // Initialize
   public function init() {
 
+    // Delete previous backups if any
+    $this->cleanBackups();
+
     // Test the connection
     $this->getDatabaseVersion();
 
@@ -106,6 +109,29 @@ final class MyBkp {
     $diskSpace = $this->getOutputSpace();
     if($bkpSize > $diskSpace) {
       throw new Exception("NOT ENOUGH DISK SPACE ON: ".$this->getOutputPath());
+    }
+  }
+
+
+
+
+  // Cleans previous backups
+  public function cleanBackups() {
+    if(isset($this->config['keep']) && $this->config['keep'] > 0) {
+      $keepDays = (int) $this->config['keep'];
+      $keepLimit = strtotime('- '.$keepDays.' days');
+
+      $schemas = $this->getBackupSchemas();
+      foreach($schemas as $schema) {
+        $dir = $this->getOutputPath().$schema.'/';
+        $backupDirs = glob( $dir.'*', GLOB_ONLYDIR);
+        foreach($backupDirs as $backupDir) {
+          $dirTime = filemtime($backupDir);
+          if($dirTime < $keepLimit) {
+            exec('rm -rf '.$backupDir);
+          }
+        }
+      }
     }
   }
 
