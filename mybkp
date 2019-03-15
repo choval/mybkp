@@ -107,7 +107,7 @@ final class MyBkp {
     // TODO: Handle mounts, use the final output path to calculate disk space
     $bkpSize = $this->getBackupSize();
     $diskSpace = $this->getOutputSpace();
-    if($bkpSize > $diskSpace) {
+    if($diskSpace !== false && $bkpSize > $diskSpace) {
       throw new Exception("NOT ENOUGH DISK SPACE ON: ".$this->getOutputPath());
     }
   }
