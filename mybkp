@@ -578,6 +578,9 @@ Backup
     foreach($flags as $flag) {
       $cmd[] = $flag;
     }
+    if(!empty($this->config['mysql_protocol'])) {
+      $cmd[] = '--protocol='.$this->config['mysql_protocol'];
+    }
     if(!empty($this->config['mysql_host'])) {
       $cmd[] = '--host='.$this->config['mysql_host'];
     }
