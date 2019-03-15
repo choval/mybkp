@@ -39,6 +39,7 @@ foreach($options as $opt=>$val) {
 // Checks configs
 if(empty($argv)) {
   echo "Please pass configuration files as parameters.\nExample: ./".basename(__FILE__)." server1.ini server2.ini\n";
+  exit(1);
 }
 
 foreach($argv as $configFile) {
@@ -48,6 +49,7 @@ foreach($argv as $configFile) {
     echo "ERROR\n";
     echo "    ".$e->getMessage();
     echo "\n\n";
+    exit(1);
   }
 }
 
