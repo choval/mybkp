@@ -1,5 +1,5 @@
 {
-    "name": "chequeas/mybkp",
+    "name": "choval/mybkp",
     "description": "PHP script to backup mysql databases",
     "type": "project",
     "license": "MIT",
