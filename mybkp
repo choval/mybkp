@@ -121,17 +121,15 @@ final class MyBkp {
       $keepDays = (int) $this->config['keep'];
       $keepLimit = strtotime('- '.$keepDays.' days');
 
-      $schemas = $this->getBackupSchemas();
-      foreach($schemas as $schema) {
-        $dir = $this->getOutputPath().$schema.'/';
-        $backupDirs = glob( $dir.'*', GLOB_ONLYDIR);
-        foreach($backupDirs as $backupDir) {
-          $dirTime = filemtime($backupDir);
-          if($dirTime < $keepLimit) {
-            exec('rm -rf '.$backupDir);
-          }
+      $dir = $this->getOutputPath();
+      $backupDirs = glob( $dir.'*', GLOB_ONLYDIR);
+      foreach($backupDirs as $backupDir) {
+        $dirTime = filemtime($backupDir);
+        if($dirTime < $keepLimit) {
+          exec('rm -rf '.$backupDir);
         }
       }
+
     }
   }
 
