@@ -447,7 +447,7 @@ Backup
 
   // Prepares for remote execution
   private function remotify($query) {
-    if($this->config['ssh']) {
+    if(!empty($this->config['ssh'])) {
       $cmd = [];
       $cmd[] = 'ssh';
       $cmd[] = $this->config['ssh_host'];
