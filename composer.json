@@ -1,0 +1,9 @@
+{
+    "name": "chequeas/mybkp",
+    "description": "PHP script to backup mysql databases",
+    "type": "project",
+    "license": "MIT",
+    "bin": [
+      "mybkp"
+    ]
+}
