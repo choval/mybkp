@@ -124,7 +124,7 @@ final class MyBkp {
       $keepLimit = strtotime('- '.$keepDays.' days');
 
       $dir = $this->getOutputPath();
-      $backupDirs = glob( $dir.'*', GLOB_ONLYDIR);
+      $backupDirs = glob( $dir.'*/*', GLOB_ONLYDIR);
       foreach($backupDirs as $backupDir) {
         $dirTime = filemtime($backupDir);
         if($dirTime < $keepLimit) {
